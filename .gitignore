@@ -1,0 +1,11 @@
+# The files auto generate after ./configure
+Make.defines
+Makefile
+config.h
+config.log
+config.status
+
+*.o
+
+# lib library
+libunp.a
