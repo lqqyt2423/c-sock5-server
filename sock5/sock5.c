@@ -96,9 +96,11 @@ requests:
 	int socket_family;
 	int socket_type = SOCK_STREAM;
 	struct sockaddr *remote_addr;
+	socklen_t socket_len;
 	int sockfd;
 
 	struct sockaddr_in remote_ipv4_addr;
+	struct sockaddr_in6 remote_ipv6_addr;
 
 	// ipv4
 	if (buf[3] == 0x01) {
@@ -109,13 +111,31 @@ requests:
 
 		remote_addr = (struct sockaddr *) &remote_ipv4_addr;
 		socket_family = AF_INET;
-	} else {
+		socket_len = sizeof(remote_ipv4_addr);
+	}
+
+	// ipv6
+	else if (buf[3] == 0x04) {
+		// 22 bytes
+		if (n < 22)
+			return;
+		bzero(&remote_ipv6_addr, sizeof(remote_ipv6_addr));
+		remote_ipv6_addr.sin6_family = AF_INET6;
+		bcopy(&buf[4], &remote_ipv6_addr.sin6_addr, 16);
+		bcopy(&buf[20], &remote_ipv6_addr.sin6_port, 2);
+
+		remote_addr = (struct sockaddr *) &remote_ipv6_addr;
+		socket_family = AF_INET6;
+		socket_len = sizeof(remote_ipv6_addr);
+	}
+
+	else {
 		err_msg("not support temporarily");
 		return;
 	}
 
 	sockfd = Socket(socket_family, socket_type, 0);
-	Connect(sockfd, remote_addr, sizeof(*remote_addr));
+	Connect(sockfd, remote_addr, socket_len);
 
 	reply(connfd, buf, 0x00);
 	printf("connect success, begin pipe data\n");

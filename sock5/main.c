@@ -8,7 +8,7 @@ int main(int argc, char **argv) {
 	socklen_t addrlen, clilen;
 	struct sockaddr *cliaddr;
 	pid_t childpid;
-	char *port = "8000";
+	char *port = "1080";
 
 	listenfd = Tcp_listen(NULL, port, &addrlen);
 	printf("server listen at %s\n", port);
