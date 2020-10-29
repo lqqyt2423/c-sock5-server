@@ -1,45 +1,162 @@
 #include "unp.h"
+#include "helper.h"
 
-void sock5(int);
-void sig_chld(int);
+//   +----+-----+-------+------+----------+----------+
+//   |VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
+//   +----+-----+-------+------+----------+----------+
+//   | 1  |  1  | X'00' |  1   | Variable |    2     |
+//   +----+-----+-------+------+----------+----------+
 
-int main(int argc, char **argv) {
-	int listenfd, connfd;
-	socklen_t addrlen, clilen;
-	struct sockaddr *cliaddr;
-	pid_t childpid;
-	char *port = "8000";
-
-	listenfd = Tcp_listen(NULL, port, &addrlen);
-	printf("server listen at %s\n", port);
-
-	cliaddr = Malloc(addrlen);
-
-	Signal(SIGCHLD, sig_chld);
-
-	for ( ; ; ) {
-		clilen = addrlen;
-		connfd = Accept(listenfd, cliaddr, &clilen);
-
-		if ( (childpid = Fork()) == 0) { // child
-			Close(listenfd);
-			sock5(connfd);
-			exit(0);
-		}
-		Close(connfd);
-	}
-}
-
-void sig_chld(int signo) {
-	pid_t pid;
-	int stat;
-
-	while ( (pid = waitpid(-1, &stat, WNOHANG)) > 0) {
-		//
-	}
-	return;
+//   o  X'00' succeeded
+//   o  X'01' general SOCKS server failure
+//   o  X'02' connection not allowed by ruleset
+//   o  X'03' Network unreachable
+//   o  X'04' Host unreachable
+//   o  X'05' Connection refused
+//   o  X'06' TTL expired
+//   o  X'07' Command not supported
+//   o  X'08' Address type not supported
+//   o  X'09' to X'FF' unassigned
+void reply(int connfd, char *buf, char rep) {
+	char head[] = { 0x05, rep, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+	Write(connfd, head, sizeof(head));
 }
 
 void sock5(int connfd) {
-	str_echo(connfd);
+	ssize_t n;
+	char buf[MAXLINE];
+
+	int i;
+
+	//   +----+----------+----------+
+	//   |VER | NMETHODS | METHODS  |
+	//   +----+----------+----------+
+	//   | 1  |    1     | 1 to 255 |
+	//   +----+----------+----------+
+
+	// as least 3 bytes
+	if ( (n = Read(connfd, buf, MAXLINE)) < 3)
+		return;
+
+	if (buf[0] != 0x05) {
+		err_msg("unsupported SOCKS version: %d", buf[0]);
+		return;
+	}
+
+	ssize_t nmethods = buf[1];
+	if (nmethods + 2 < n)
+		return;
+
+	// o  X'00' NO AUTHENTICATION REQUIRED
+    // o  X'01' GSSAPI
+    // o  X'02' USERNAME/PASSWORD
+    // o  X'03' to X'7F' IANA ASSIGNED
+    // o  X'80' to X'FE' RESERVED FOR PRIVATE METHODS
+    // o  X'FF' NO ACCEPTABLE METHODS
+	for (i = 2; i < nmethods + 2; i++) {
+		if (buf[i] == 0x00) {
+			buf[0] = 0x05;
+			buf[1] = 0x00;
+			Write(connfd, buf, 2);
+			goto requests;
+		}
+	}
+	err_msg("auth methods not support");
+	return;
+
+requests:
+	//   +----+-----+-------+------+----------+----------+
+    //   |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+    //   +----+-----+-------+------+----------+----------+
+    //   | 1  |  1  | X'00' |  1   | Variable |    2     |
+    //   +----+-----+-------+------+----------+----------+
+
+	// as least 10 bytes
+	if ( (n = Read(connfd, buf, MAXLINE)) < 10)
+		return;
+
+	if (buf[0] != 0x05) {
+		err_msg("unsupported SOCKS version: %d", buf[0]);
+		return;
+	}
+
+	// o  CONNECT X'01'
+    // o  BIND X'02'
+    // o  UDP ASSOCIATE X'03'
+	if (buf[1] != 0x01) {
+		reply(connfd, buf, 0x07);
+		return;
+	}
+
+	if (buf[2] != 0x00) {
+		reply(connfd, buf, 0x07);
+		return;
+	}
+
+	int socket_family;
+	int socket_type = SOCK_STREAM;
+	struct sockaddr *remote_addr;
+	int sockfd;
+
+	struct sockaddr_in remote_ipv4_addr;
+
+	// ipv4
+	if (buf[3] == 0x01) {
+		bzero(&remote_ipv4_addr, sizeof(remote_ipv4_addr));
+		remote_ipv4_addr.sin_family = AF_INET;
+		bcopy(&buf[4], &remote_ipv4_addr.sin_addr, 4);
+		bcopy(&buf[8], &remote_ipv4_addr.sin_port, 2);
+
+		remote_addr = (struct sockaddr *) &remote_ipv4_addr;
+		socket_family = AF_INET;
+	} else {
+		err_msg("not support temporarily");
+		return;
+	}
+
+	sockfd = Socket(socket_family, socket_type, 0);
+	Connect(sockfd, remote_addr, sizeof(*remote_addr));
+
+	reply(connfd, buf, 0x00);
+	printf("connect success, begin pipe data\n");
+
+	fd_set rset;
+	int maxfdp1;
+	int connfdeof, sockfdeof;
+	connfdeof = 0;
+	sockfdeof = 0;
+
+	FD_ZERO(&rset);
+	for ( ; ; ) {
+		if (connfdeof == 0)
+			FD_SET(connfd, &rset);
+		if (sockfdeof == 0)
+			FD_SET(sockfd, &rset);
+		maxfdp1 = max(connfd, sockfd) + 1;
+		Select(maxfdp1, &rset, NULL, NULL, NULL);
+
+		if (FD_ISSET(connfd, &rset)) {
+			if ( (n = Read(connfd, buf, MAXLINE)) == 0) {
+				connfdeof = 1;
+				Shutdown(sockfd, SHUT_WR);
+				FD_CLR(connfd, &rset);
+			} else {
+				Write(sockfd, buf, n);
+			}
+		}
+
+		if (FD_ISSET(sockfd, &rset)) {
+			if ( (n = Read(sockfd, buf, MAXLINE)) == 0) {
+				sockfdeof = 1;
+				Shutdown(connfd, SHUT_WR);
+				FD_CLR(sockfd, &rset);
+			} else {
+				Write(connfd, buf, n);
+			}
+		}
+
+		// finish
+		if (connfdeof && sockfdeof)
+			return;
+	}
 }
