@@ -43,7 +43,7 @@ void sock5(int connfd) {
 		return;
 	}
 
-	ssize_t nmethods = buf[1];
+	int nmethods = buf[1];
 	if (nmethods + 2 < n)
 		return;
 
@@ -93,6 +93,8 @@ requests:
 		return;
 	}
 
+	// show_bytes((byte_pointer)buf, n);
+
 	int socket_family;
 	int socket_type = SOCK_STREAM;
 	struct sockaddr *remote_addr;
@@ -129,6 +131,20 @@ requests:
 		socket_len = sizeof(remote_ipv6_addr);
 	}
 
+	// domain
+	else if (buf[3] == 0x03) {
+		int domain_len = buf[4];
+		if (n < domain_len + 7)
+			return;
+
+		// port
+		uint16_t port = ntohs(*((uint16_t*)&buf[domain_len+5]));
+		snprintf(buf + domain_len + 6, MAXLINE - domain_len - 6 - 1, "%d", port);
+		buf[domain_len+5] = 0;
+		sockfd = Tcp_connect(buf + 5, buf + domain_len + 6);
+		goto pipe;
+	}
+
 	else {
 		err_msg("not support temporarily");
 		return;
@@ -137,6 +153,7 @@ requests:
 	sockfd = Socket(socket_family, socket_type, 0);
 	Connect(sockfd, remote_addr, socket_len);
 
+pipe:
 	reply(connfd, buf, 0x00);
 	printf("connect success, begin pipe data\n");
 
