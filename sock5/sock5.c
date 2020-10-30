@@ -97,9 +97,11 @@ requests:
 
 	int socket_family;
 	int socket_type = SOCK_STREAM;
-	struct sockaddr *remote_addr;
-	socklen_t socket_len;
+	struct sockaddr *remote_addr, client_addr;
+	socklen_t socket_len, client_socket_len;
 	int sockfd;
+
+	char remote_host_port[128], local_host_port[128];
 
 	struct sockaddr_in remote_ipv4_addr;
 	struct sockaddr_in6 remote_ipv6_addr;
@@ -139,9 +141,12 @@ requests:
 
 		// port
 		uint16_t port = ntohs(*((uint16_t*)&buf[domain_len+5]));
-		snprintf(buf + domain_len + 6, MAXLINE - domain_len - 6 - 1, "%d", port);
+		int port_len = snprintf(buf + domain_len + 6, MAXLINE - domain_len - 6 - 1, "%d", port);
 		buf[domain_len+5] = 0;
 		sockfd = Tcp_connect(buf + 5, buf + domain_len + 6);
+
+		bcopy(buf+5, remote_host_port, domain_len+1+port_len+1);
+		remote_host_port[domain_len] = ':';
 		goto pipe;
 	}
 
@@ -152,10 +157,14 @@ requests:
 
 	sockfd = Socket(socket_family, socket_type, 0);
 	Connect(sockfd, remote_addr, socket_len);
+	bcopy(Sock_ntop(remote_addr, socket_len), remote_host_port, sizeof(remote_host_port));
 
 pipe:
 	reply(connfd, buf, 0x00);
-	printf("connect success, begin pipe data\n");
+
+	Getpeername(connfd, &client_addr, &client_socket_len);
+	bcopy(Sock_ntop(&client_addr, client_socket_len), local_host_port, sizeof(local_host_port));
+	printf("SOCKS proxy %s <-> %s\n", local_host_port, remote_host_port);
 
 	fd_set rset;
 	int maxfdp1;

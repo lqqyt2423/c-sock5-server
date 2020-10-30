@@ -1,3 +1,5 @@
+.vscode
+
 # The files auto generate after ./configure
 Make.defines
 Makefile
@@ -9,3 +11,6 @@ config.status
 
 # lib library
 libunp.a
+
+# binary
+sock5/sock5
