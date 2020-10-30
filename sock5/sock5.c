@@ -1,6 +1,16 @@
 #include "unp.h"
 #include "helper.h"
 
+char auth_user[] = "user";
+char auth_pass[] = "password";
+
+char reply_00[] = { 0x05, 0x00 };
+char reply_02[] = { 0x05, 0x02 };
+char reply_ff[] = { 0x05, 0xff };
+
+char auth_success[] = { 0x01, 0x00 };
+char auth_fail[] = { 0x01, 0x01 };
+
 //   +----+-----+-------+------+----------+----------+
 //   |VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
 //   +----+-----+-------+------+----------+----------+
@@ -53,16 +63,67 @@ void sock5(int connfd) {
     // o  X'03' to X'7F' IANA ASSIGNED
     // o  X'80' to X'FE' RESERVED FOR PRIVATE METHODS
     // o  X'FF' NO ACCEPTABLE METHODS
+
+	int method = 0xff;
 	for (i = 2; i < nmethods + 2; i++) {
-		if (buf[i] == 0x00) {
-			buf[0] = 0x05;
-			buf[1] = 0x00;
-			Write(connfd, buf, 2);
-			goto requests;
+		if (buf[i] == 0x02) {
+			method = 0x02;
+			break;
+		}
+		else if (buf[i] == 0x00) {
+			method = 0x00;
 		}
 	}
-	err_msg("auth methods not support");
+
+	if (method == 0x02)
+		goto auth;
+	if (method == 0x00) {
+		Write(connfd, reply_00, 2);
+		goto requests;
+	}
+
+	Write(connfd, reply_ff, 2);
 	return;
+
+auth:
+	Write(connfd, reply_02, 2);
+
+	//  +----+------+----------+------+----------+
+	//  |VER | ULEN |  UNAME   | PLEN |  PASSWD  |
+	//  +----+------+----------+------+----------+
+	//  | 1  |  1   | 1 to 255 |  1   | 1 to 255 |
+	//  +----+------+----------+------+----------+
+
+	// at least 5 bytes
+	if ( (n = Read(connfd, buf, MAXLINE)) < 5)
+		return;
+	if (buf[0] != 0x01)
+		return;
+
+	int uname_len, pass_len;
+	char *uname, *pass;
+
+	// show_bytes((byte_pointer)buf, n);
+
+	uname_len = buf[1];
+	if (n < 4 + uname_len)
+		return;
+	uname = buf + 2;
+
+	pass_len = buf[2+uname_len];
+	if (n < 3 + uname_len + pass_len)
+		return;
+	pass = buf + 3 + uname_len;
+
+	if (uname_len == sizeof(auth_user) - 1 &&
+		pass_len == sizeof(auth_pass) - 1 &&
+		memcmp(uname, auth_user, uname_len) == 0 &&
+		memcmp(pass, auth_pass, pass_len) == 0) {
+		Write(connfd, auth_success, 2);
+	} else {
+		Write(connfd, auth_fail, 2);
+		return;
+	}
 
 requests:
 	//   +----+-----+-------+------+----------+----------+
@@ -71,7 +132,7 @@ requests:
     //   | 1  |  1  | X'00' |  1   | Variable |    2     |
     //   +----+-----+-------+------+----------+----------+
 
-	// as least 10 bytes
+	// at least 10 bytes
 	if ( (n = Read(connfd, buf, MAXLINE)) < 10)
 		return;
 
