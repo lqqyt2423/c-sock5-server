@@ -13,4 +13,4 @@ config.status
 libunp.a
 
 # binary
-sock5/sock5
+socks5/socks5
