@@ -58,11 +58,11 @@ void sock5(int connfd) {
 		return;
 
 	// o  X'00' NO AUTHENTICATION REQUIRED
-    // o  X'01' GSSAPI
-    // o  X'02' USERNAME/PASSWORD
-    // o  X'03' to X'7F' IANA ASSIGNED
-    // o  X'80' to X'FE' RESERVED FOR PRIVATE METHODS
-    // o  X'FF' NO ACCEPTABLE METHODS
+	// o  X'01' GSSAPI
+	// o  X'02' USERNAME/PASSWORD
+	// o  X'03' to X'7F' IANA ASSIGNED
+	// o  X'80' to X'FE' RESERVED FOR PRIVATE METHODS
+	// o  X'FF' NO ACCEPTABLE METHODS
 
 	int method = 0xff;
 	for (i = 2; i < nmethods + 2; i++) {
@@ -127,10 +127,10 @@ auth:
 
 requests:
 	//   +----+-----+-------+------+----------+----------+
-    //   |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
-    //   +----+-----+-------+------+----------+----------+
-    //   | 1  |  1  | X'00' |  1   | Variable |    2     |
-    //   +----+-----+-------+------+----------+----------+
+	//   |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+	//   +----+-----+-------+------+----------+----------+
+	//   | 1  |  1  | X'00' |  1   | Variable |    2     |
+	//   +----+-----+-------+------+----------+----------+
 
 	// at least 10 bytes
 	if ( (n = Read(connfd, buf, MAXLINE)) < 10)
@@ -142,8 +142,8 @@ requests:
 	}
 
 	// o  CONNECT X'01'
-    // o  BIND X'02'
-    // o  UDP ASSOCIATE X'03'
+	// o  BIND X'02'
+	// o  UDP ASSOCIATE X'03'
 	if (buf[1] != 0x01) {
 		reply(connfd, buf, 0x07);
 		return;
